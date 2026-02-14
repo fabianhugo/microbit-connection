@@ -44,7 +44,7 @@ import {
 } from "./service-events.js";
 
 import { throwIfUnavailable } from "./availability.js";
-import { truncateHexAfterEof } from "./hex-flash-data-source.js";
+import { truncateHexAfterEof } from "./hex-util.js";
 import {
   DefaultDeviceBondState,
   DeviceBondState,

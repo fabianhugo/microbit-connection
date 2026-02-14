@@ -10,25 +10,31 @@ import {
   ButtonEvent,
   ConnectionStatus,
   ConnectionStatusEvent,
-  createRadioBridgeConnection,
-  createUniversalHexFlashDataSource,
-  createWebBluetoothConnection,
-  createWebUSBConnection,
-  DeviceSelectionMode,
   MagnetometerDataEvent,
-  MicrobitRadioBridgeConnection,
-  MicrobitWebBluetoothConnection,
-  MicrobitWebUSBConnection,
   SerialDataEvent,
   UARTDataEvent,
 } from "@microbit/microbit-connection";
+import {
+  createBluetoothConnection,
+  type MicrobitBluetoothConnection,
+} from "@microbit/microbit-connection/bluetooth";
+import {
+  createWebUSBConnection,
+  DeviceSelectionMode,
+  type MicrobitWebUSBConnection,
+} from "@microbit/microbit-connection/usb";
+import {
+  createRadioBridgeConnection,
+  type MicrobitRadioBridgeConnection,
+} from "@microbit/microbit-connection/radio-bridge";
+import { createUniversalHexFlashDataSource } from "@microbit/microbit-connection/universal-hex";
 import "./demo.css";
 
 type ConnectionType = "usb" | "bluetooth" | "radio";
 
 type TypedConnection =
   | { type: "radio"; connection: MicrobitRadioBridgeConnection }
-  | { type: "bluetooth"; connection: MicrobitWebBluetoothConnection }
+  | { type: "bluetooth"; connection: MicrobitBluetoothConnection }
   | { type: "usb"; connection: MicrobitWebUSBConnection };
 
 const createConnections = (
@@ -36,7 +42,7 @@ const createConnections = (
 ): TypedConnection => {
   switch (type) {
     case "bluetooth":
-      return { type, connection: createWebBluetoothConnection() };
+      return { type, connection: createBluetoothConnection() };
     case "usb":
       return {
         type,

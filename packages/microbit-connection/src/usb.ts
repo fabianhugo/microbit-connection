@@ -87,14 +87,6 @@ export interface MicrobitWebUSBConnection
    */
   setRequestDeviceExclusionFilters(exclusionFilters: USBDeviceFilter[]): void;
 
-  /**
-   * Flash the micro:bit.
-   *
-   * @param dataSource The data to use.
-   * @param options Flash options and progress callback.
-   * @throws {DeviceError} On flash failure. The error.code property indicates the failure type.
-   * @throws {FlashDataError} If data preparation fails.
-   */
   flash(dataSource: FlashDataSource, options: FlashOptions): Promise<void>;
 
   /**

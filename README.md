@@ -2,17 +2,28 @@
 
 <a href="https://microbit-foundation.github.io/microbit-connection/" class="typedoc-ignore">This documentation is best viewed on the documentation site rather than GitHub or NPM package site.</a>
 
-This is a JavaScript library for micro:bit connections in browsers via USB and Bluetooth.
+A TypeScript library for connecting to micro:bit devices via USB and Bluetooth. Works in browsers (via WebUSB and Web Bluetooth) and in native iOS/Android apps (via [Capacitor](https://capacitorjs.com/)).
 
-This project is a work in progress. We are extracting WebUSB and Web Bluetooth code from the [micro:bit Python Editor](https://github.com/microbit-foundation/python-editor-v3/) and other projects. The API is not stable and it's not yet recommended that third parties use this project unless they are happy to update usage as the API evolves.
+[Available on NPM](https://www.npmjs.com/package/@microbit/microbit-connection).
 
-[Demo page](https://microbit-connection.pages.dev/) for this library.
+### Demo apps
 
-[Alpha releases are now on NPM](https://www.npmjs.com/package/@microbit/microbit-connection).
+- [Web demo](https://microbit-connection.pages.dev/) ([source](apps/demo/)) — WebUSB and Web Bluetooth in the browser
+- [Capacitor demo](apps/capacitor/) — Bluetooth on iOS and Android via Capacitor
 
-[micro:bit CreateAI](https://github.com/microbit-foundation/ml-trainer/) is already using this library for WebUSB and Web Bluetooth.
+### Projects using this library
 
-[This Python Editor PR](https://github.com/microbit-foundation/python-editor-v3/pull/1190) tracks updating the micro:bit Python Editor to use this library.
+- [micro:bit CreateAI](https://github.com/microbit-foundation/ml-trainer/) — uses USB and Bluetooth connections
+- [micro:bit Python Editor](https://github.com/microbit-foundation/python-editor-v3/) — [migration in progress](https://github.com/microbit-foundation/python-editor-v3/pull/1190)
+
+### Platform support
+
+| Feature | Web (browser) | Native (Capacitor) |
+|---|---|---|
+| USB connection | WebUSB | Not supported |
+| Bluetooth connection | Web Bluetooth | iOS and Android |
+| Flash via USB | Yes | Not supported |
+| Flash via Bluetooth | Not supported | iOS and Android |
 
 ## Usage
 
@@ -21,7 +32,7 @@ This project is a work in progress. We are extracting WebUSB and Web Bluetooth c
 Instantiate a WebUSB connection using {@link createWebUSBConnection} class and use it to connect to a micro:bit.
 
 ```ts
-import { createWebUSBConnection } from "@microbit/microbit-connection";
+import { createWebUSBConnection } from "@microbit/microbit-connection/usb";
 
 const usb = createWebUSBConnection();
 const connectionStatus = await usb.connect();
@@ -34,7 +45,7 @@ console.log("Connection status: ", connectionStatus);
 Flash a universal hex that supports both V1 and V2:
 
 ```ts
-import { createUniversalHexFlashDataSource } from "@microbit/microbit-connection";
+import { createUniversalHexFlashDataSource } from "@microbit/microbit-connection/universal-hex";
 
 await usb.flash(createUniversalHexFlashDataSource(universalHexString), {
   partial: true,
@@ -74,18 +85,18 @@ await usb.flash(
 );
 ```
 
-For more examples of using other methods in the {@link MicrobitWebUSBConnection} class, see our [demo code](https://github.com/microbit-foundation/microbit-connection/blob/main/src/demo.ts) for our [demo site](https://microbit-connection.pages.dev/).
+For more examples see the [web demo source](apps/demo/src/demo.ts) and the [Capacitor demo source](apps/capacitor/src/).
 
 ### Connect via Bluetooth
 
 By default, the micro:bit's Bluetooth service is not enabled. Visit our [Bluetooth tech site page](https://tech.microbit.org/bluetooth/) to download a hex file that would enable the bluetooth service.
 
-Instantiate a Bluetooth connection using {@link createWebBluetoothConnection} class and use it to connect to a micro:bit.
+Instantiate a Bluetooth connection using {@link createBluetoothConnection} class and use it to connect to a micro:bit.
 
 ```ts
-import { createWebBluetoothConnection } from "@microbit/microbit-connection";
+import { createBluetoothConnection } from "@microbit/microbit-connection/bluetooth";
 
-const bluetooth = createWebBluetoothConnection();
+const bluetooth = createBluetoothConnection();
 const connectionStatus = await bluetooth.connect();
 
 console.log("Connection status: ", connectionStatus);
@@ -93,7 +104,7 @@ console.log("Connection status: ", connectionStatus);
 
 {@link ConnectionStatus | Connection status} is `"CONNECTED"` if connection succeeds.
 
-For more examples of using other methods in the {@link createWebBluetoothConnection} class, see our [demo code](https://github.com/microbit-foundation/microbit-connection/blob/main/src/demo.ts) for our [demo site](https://microbit-connection.pages.dev/).
+For more examples see the [web demo source](apps/demo/src/demo.ts) and the [Capacitor demo source](apps/capacitor/src/).
 
 ## License
 

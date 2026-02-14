@@ -385,23 +385,21 @@ class MicrobitWebBluetoothConnectionImpl
   }
 
   private async requestDevice(signal?: AbortSignal): Promise<BleDevice> {
-    // TODO: is this possible to reinstate?
+    // Support both the default "BBC micro:bit" name and the shorter "uBit"
+    // name used by some MakeCode extensions (e.g. bsiever/microbit-pxt-blehid).
     // See https://github.com/bsiever/microbit-pxt-blehid/issues/31
-    // namePrefix: this.nameFilter
-    //   ? `uBit [${this.nameFilter}]`
-    //   : "uBit",
-    const namePrefix = this.nameFilter
-      ? `BBC micro:bit [${this.nameFilter}]`
-      : "BBC micro:bit";
+    const namePrefixes = this.nameFilter
+      ? [`BBC micro:bit [${this.nameFilter}]`, `uBit [${this.nameFilter}]`]
+      : ["BBC micro:bit", "uBit"];
 
     // If we have a cached device, check if it still matches the current filter.
     // If not, clear it so we find a new device.
     if (this.device) {
-      if (this.device.name?.startsWith(namePrefix)) {
+      if (namePrefixes.some((p) => this.device!.name?.startsWith(p))) {
         return this.device;
       }
       this.log(
-        `Cached device "${this.device.name}" doesn't match filter "${namePrefix}", clearing`,
+        `Cached device "${this.device.name}" doesn't match filters "${namePrefixes.join(", ")}", clearing`,
       );
       await this.clearDevice();
     }
@@ -409,8 +407,8 @@ class MicrobitWebBluetoothConnectionImpl
     this.dispatchTypedEvent("beforerequestdevice", new BeforeRequestDevice());
     try {
       this.device = Capacitor.isNativePlatform()
-        ? await this.requestDeviceNative(namePrefix, signal)
-        : await this.requestDeviceWeb(namePrefix);
+        ? await this.requestDeviceNative(namePrefixes, signal)
+        : await this.requestDeviceWeb(namePrefixes);
       if (!this.device) {
         this.setStatus(ConnectionStatus.NO_AUTHORIZED_DEVICE);
         throw new DeviceError({
@@ -583,24 +581,31 @@ class MicrobitWebBluetoothConnectionImpl
    * @returns device or undefined if user cancels.
    */
   private async requestDeviceWeb(
-    namePrefix: string,
+    namePrefixes: string[],
   ): Promise<BleDevice | undefined> {
+    const optionalServices = [
+      profile.accelerometer.id,
+      profile.button.id,
+      profile.deviceInformation.id,
+      profile.dfuControl.id,
+      profile.event.id,
+      profile.ioPin.id,
+      profile.led.id,
+      profile.magnetometer.id,
+      profile.temperature.id,
+      profile.uart.id,
+    ];
     try {
-      return await BleClient.requestDevice({
-        namePrefix,
-        optionalServices: [
-          profile.accelerometer.id,
-          profile.button.id,
-          profile.deviceInformation.id,
-          profile.dfuControl.id,
-          profile.event.id,
-          profile.ioPin.id,
-          profile.led.id,
-          profile.magnetometer.id,
-          profile.temperature.id,
-          profile.uart.id,
-        ],
+      // Call Web Bluetooth directly to support multiple name prefix filters.
+      // The capacitor-ble plugin's requestDevice only supports a single namePrefix.
+      const device = await navigator.bluetooth.requestDevice({
+        filters: namePrefixes.map((namePrefix) => ({ namePrefix })),
+        optionalServices,
       });
+      // Register the device with the capacitor-ble plugin so subsequent
+      // plugin calls (connect, read, write, etc.) can find it.
+      await BleClient.getDevices([device.id]);
+      return { deviceId: device.id, name: device.name };
     } catch (e) {
       if (e instanceof DOMException && e.name === "NotFoundError") {
         return undefined;
@@ -616,22 +621,24 @@ class MicrobitWebBluetoothConnectionImpl
    * @throws DeviceError with code "aborted" if signal is aborted.
    */
   private async requestDeviceNative(
-    namePrefix: string,
+    namePrefixes: string[],
     signal?: AbortSignal,
   ): Promise<BleDevice | undefined> {
     if (signal?.aborted) {
       throw new DeviceError({ code: "aborted", message: "Connection aborted" });
     }
 
+    const matchesAnyPrefix = (name: string | undefined) =>
+      !!name && namePrefixes.some((p) => name.startsWith(p));
+
     // Check for existing bonded devices.
-    const bonded = await this.checkBondedDevices((device: BleDevice) => {
-      const name = device.name;
-      return !!name && name.startsWith(namePrefix);
-    });
+    const bonded = await this.checkBondedDevices((device: BleDevice) =>
+      matchesAnyPrefix(device.name),
+    );
     if (bonded) {
       return bonded;
     }
-    this.log(`Scanning for device - ${namePrefix}`);
+    this.log(`Scanning for device - ${namePrefixes.join(", ")}`);
     let found = false;
     let aborted = false;
     const scanPromise: Promise<BleDevice> = new Promise(
@@ -643,8 +650,8 @@ class MicrobitWebBluetoothConnectionImpl
           // localName on the device. So we filter here instead.  This happens on
           // iOS if DFU fails / is interrupted.
           if (
-            result.device.name?.startsWith(namePrefix) ||
-            result.localName?.startsWith(namePrefix)
+            matchesAnyPrefix(result.device.name) ||
+            matchesAnyPrefix(result.localName)
           ) {
             found = true;
             await BleClient.stopLEScan();

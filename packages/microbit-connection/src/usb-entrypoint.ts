@@ -1,3 +1,6 @@
+/**
+ * @module @microbit/microbit-connection/usb
+ */
 export {
   createWebUSBConnection,
   DeviceSelectionMode,

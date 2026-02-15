@@ -1,3 +1,6 @@
+/**
+ * @module @microbit/microbit-connection/bluetooth
+ */
 export {
   createBluetoothConnection,
   type MicrobitBluetoothConnection,

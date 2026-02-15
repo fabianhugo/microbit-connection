@@ -1,3 +1,6 @@
+/**
+ * @module @microbit/microbit-connection
+ */
 import { AccelerometerData, AccelerometerDataEvent } from "./accelerometer.js";
 import { BoardId } from "./board-id.js";
 import { ButtonEvent, ButtonEventType, ButtonState } from "./buttons.js";

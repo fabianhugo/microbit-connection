@@ -25,11 +25,23 @@ A TypeScript library for connecting to micro:bit devices via USB and Bluetooth. 
 | Flash via USB | Yes | Not supported |
 | Flash via Bluetooth | Not supported | iOS and Android |
 
+## Entrypoints
+
+The library is split into separate entrypoints for tree-shaking. Import shared types from the root and connection-specific code from subpaths:
+
+| Import path | Contents |
+|---|---|
+| `@microbit/microbit-connection` | Shared types and events (`ConnectionStatus`, `DeviceConnection`, `FlashOptions`, etc.) |
+| `@microbit/microbit-connection/bluetooth` | `createBluetoothConnection` and Bluetooth connection types |
+| `@microbit/microbit-connection/usb` | `createWebUSBConnection` and USB connection types |
+| `@microbit/microbit-connection/universal-hex` | `createUniversalHexFlashDataSource` (depends on `@microbit/microbit-universal-hex`) |
+| `@microbit/microbit-connection/radio-bridge` | `createRadioBridgeConnection` for micro:bit radio bridge connections |
+
 ## Usage
 
 ### Flash a micro:bit
 
-Instantiate a WebUSB connection using {@link createWebUSBConnection} class and use it to connect to a micro:bit.
+Instantiate a WebUSB connection using {@link @microbit/microbit-connection/usb!createWebUSBConnection | createWebUSBConnection} and use it to connect to a micro:bit.
 
 ```ts
 import { createWebUSBConnection } from "@microbit/microbit-connection/usb";
@@ -40,7 +52,7 @@ const connectionStatus = await usb.connect();
 console.log("Connection status: ", connectionStatus);
 ```
 
-{@link ConnectionStatus | Connection status} is `"CONNECTED"` if connection succeeds.
+{@link @microbit/microbit-connection!ConnectionStatus | Connection status} is `"CONNECTED"` if connection succeeds.
 
 Flash a universal hex that supports both V1 and V2:
 
@@ -57,7 +69,7 @@ await usb.flash(createUniversalHexFlashDataSource(universalHexString), {
 
 This code will also work for non-universal hex files so is a good default for unknown hex files.
 
-Alternatively, you can create and flash a hex for a specific micro:bit version by providing a function that takes a {@link BoardVersion} and returns a hex.
+Alternatively, you can create and flash a hex for a specific micro:bit version by providing a function that takes a {@link @microbit/microbit-connection!BoardVersion} and returns a hex.
 This can reduce download size or help integrate with APIs that produce a hex for a particular device version.
 This example uses the [@microbit/microbit-fs library](https://microbit-foundation.github.io/microbit-fs/) which can return a hex based on board id.
 
@@ -91,7 +103,7 @@ For more examples see the [web demo source](apps/demo/src/demo.ts) and the [Capa
 
 By default, the micro:bit's Bluetooth service is not enabled. Visit our [Bluetooth tech site page](https://tech.microbit.org/bluetooth/) to download a hex file that would enable the bluetooth service.
 
-Instantiate a Bluetooth connection using {@link createBluetoothConnection} class and use it to connect to a micro:bit.
+Instantiate a Bluetooth connection using {@link @microbit/microbit-connection/bluetooth!createBluetoothConnection | createBluetoothConnection} class and use it to connect to a micro:bit.
 
 ```ts
 import { createBluetoothConnection } from "@microbit/microbit-connection/bluetooth";
@@ -102,7 +114,7 @@ const connectionStatus = await bluetooth.connect();
 console.log("Connection status: ", connectionStatus);
 ```
 
-{@link ConnectionStatus | Connection status} is `"CONNECTED"` if connection succeeds.
+{@link @microbit/microbit-connection!ConnectionStatus | Connection status} is `"CONNECTED"` if connection succeeds.
 
 For more examples see the [web demo source](apps/demo/src/demo.ts) and the [Capacitor demo source](apps/capacitor/src/).
 

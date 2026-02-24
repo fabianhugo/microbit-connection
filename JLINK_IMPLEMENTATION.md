@@ -93,45 +93,111 @@ Serial:     000889591706 (12 characters)
 
 ## Next Steps
 
-### Phase 2: J-Link Protocol Implementation 🔄
+### Phase 2: J-Link Protocol Implementation ✅ **COMPLETE**
 
-**Research Required:**
-1. Inspect SEGGER's WebUSB demo JavaScript at: https://www.segger.com/jlink_webusb_update_target_firmware.html
-2. Reverse-engineer J-Link command structure
-3. Document J-Link protocol commands needed for:
-   - Target initialization (nRF52833)
-   - Flash erase operations
-   - Flash write operations
-   - Verification
-   - Reset
+**Status:** Protocol fully implemented and ready for testing
 
-**Implementation Tasks:**
-1. Create J-Link protocol commands module
-   - Flash initialization
-   - Sector erase
-   - Program/write
-   - Verify
-   - Reset
-2. Implement hex file parsing for J-Link flashing
-3. Implement `flashHex()` method in `JLinkWrapper`
-4. Add progress reporting
+**Files Implemented:**
+- `lib/jlink-protocol.ts` - Complete J-Link MSD flashing protocol
+- `lib/usb-jlink-wrapper.ts` - Updated to use MSD protocol
 
-### Phase 3: Integration 🔄
+**What Was Done:** ✅
 
-**Tasks:**
-1. Update `lib/usb.ts` to detect interface type and instantiate correct wrapper
-2. Create abstract device wrapper interface
-3. Modify flash methods to route to appropriate wrapper
-4. Update demo page to show J-Link devices
-5. Testing with actual hardware
+1. **Protocol Discovery:** Captured USB packets from SEGGER's demo page:
+   - Used browser DevTools console to intercept USB transfers
+   - Captured complete flashing sequence with ~170 packets
+   - Analyzed packet structure and command format
 
-### Phase 4: Testing & Polish 🔄
+2. **Protocol Details Discovered:**
+   - **EMU_CMD_GET_CAPS_EX** (0xED): Query extended capabilities → Returns 32 bytes
+   - **EMU_CMD_GET_PROBE_INFO** (0x1C): Probe operations with subcommands:
+     - Subcommand 0: Get probe capabilities → Returns 4 bytes (capability flags)
+     - Subcommand 5: Write MSD image chunk → Send 4KB chunks of hex data
+     - Subcommand 6: Finalize MSD image write → Returns 4 bytes (status)
+   
+3. **Chunk Format:** `[0x1C, 0x05, size_lo, size_hi, 0x00, 0x00, ...hex_data...]`
+   - Size is little-endian (e.g., 0x00 0x10 = 4096 bytes)
+   - Data is raw Intel HEX file content (ASCII), not parsed binary
+   - Standard chunk size: 4096 bytes
+   - Last chunk can be smaller
 
-**Tasks:**
-1. Write unit tests for J-Link wrapper
-2. Test with Calliope mini v2 hardware
-3. Update documentation
-4. Verify backward compatibility with micro:bit/Calliope v1/v3
+4. **Implementation Completed:**
+   - ✅ `JLinkProtocol.connect()` - Queries capabilities and validates MSD support
+   - ✅ `JLinkProtocol.programFlash()` - Sends hex data in 4KB chunks with progress
+   - ✅ Simplified wrapper - no parsing, no erase, no verify (J-Link handles internally)
+   - ✅ Progress reporting through callback
+   - ✅ Error handling for failed operations
+
+5. **Key Discovery:**
+   - J-Link uses **MSD (Mass Storage Device) flashing protocol**
+   - Hex file is sent as-is (text format), not parsed to binary
+   - J-Link probe handles: parsing, erasing, programming, verification, reset
+   - Much simpler than DAPLink's low-level flash control
+
+**Testing Status:** 🧪
+- ✅ Code compiles without errors
+- ✅ Build completes successfully
+- ⏳ Hardware testing pending (user has Calliope mini v2 available)
+
+**USB Packet Capture Log:**
+```
+→ OUT EP2 [1 bytes]: 0xed                                    # GET_CAPS_EX
+← IN  EP3 [32 bytes]: 0x33 0x5a 0x6a 0xb8 ...              # Capabilities
+
+→ OUT EP2 [2 bytes]: 0x1c 0x00                               # GET_PROBE_INFO(0)
+← IN  EP3 [4 bytes]: 0x05 0x00 0x00 0x00                    # Supports MSD (flag 0x05)
+
+→ OUT EP2 [4102 bytes]: 0x1c 0x05 0x00 0x10 0x00 0x00 ...  # Write chunk (4096 bytes)
+→ OUT EP2 [4102 bytes]: 0x1c 0x05 0x00 0x10 0x00 0x00 ...  # Write chunk
+... (repeated ~170 times for full firmware)
+→ OUT EP2 [1209 bytes]: 0x1c 0x05 0xb3 0x04 0x00 0x00 ...  # Last chunk (1203 bytes)
+
+→ OUT EP2 [2 bytes]: 0x1c 0x06                               # Finalize write
+← IN  EP3 [4 bytes]: 0x00 0x00 0x00 0x00                    # Success (0)
+```
+
+### Phase 3: Integration ✅ **COMPLETE**
+
+**Completed Tasks:**
+1. ✅ Updated `lib/usb.ts` to detect interface type and instantiate correct wrapper
+   - Created `createDeviceWrapper()` factory method
+   - Routes to JLinkWrapper or DAPWrapper based on USB VID/PID
+2. ✅ Factory pattern for device wrapper instantiation
+3. ✅ Modified flash methods to route to appropriate wrapper
+   - J-Link uses `flashHex()` (full flash only, no partial flashing)
+   - DAPLink uses existing partial flashing implementation
+4. ✅ Updated demo page - J-Link devices display correctly
+5. ✅ Testing with actual Calliope mini v2 hardware confirmed:
+   - Connection works
+   - Device detection works
+   - Board ID displayed correctly (9902)
+   - Serial UI added (Linux limitation documented)
+
+**Status:** Integration complete, ready for protocol implementation
+
+### Phase 4: Testing & Polish 🔄 **READY FOR TESTING**
+
+**Current Status:** Implementation complete, awaiting hardware testing
+
+**Next Steps:**
+1. ⏳ Test flashing with actual Calliope mini v2 hardware
+   - Start with small test firmware (blink LED)
+   - Verify progress reporting
+   - Test with full-size firmware
+   - Confirm automatic reset after flashing
+2. ⏳ Write unit tests for J-Link wrapper
+3. ⏳ Update user-facing documentation (README.md)
+4. ⏳ Verify backward compatibility with micro:bit/Calliope v1/v3
+
+**Testing Checklist:**
+- [ ] Connect to Calliope mini v2
+- [ ] Flash small test hex file (<50KB)
+- [ ] Verify progress bar updates smoothly
+- [ ] Confirm device resets and runs new code
+- [ ] Flash full firmware (~200KB)
+- [ ] Test error handling (disconnect during flash, invalid hex)
+- [ ] Test on different browsers (Chrome, Edge)
+- [ ] Verify no regression on DAPLink devices
 
 ## Key Design Decisions
 

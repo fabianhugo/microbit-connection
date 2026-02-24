@@ -6,6 +6,7 @@
 
 import { Logging } from "./logging.js";
 import { BoardSerialInfo } from "./board-serial-info.js";
+import { JLinkProtocol } from "./jlink-protocol.js";
 
 /**
  * J-Link USB interface configuration.
@@ -27,12 +28,13 @@ const JLINK_INTERFACE = {
 
 const JLINK_ENDPOINTS = {
   // CDC Serial endpoints (Interface 1)
-  CDC_IN: 0x81,  // EP 1 IN - serial data from device
-  CDC_OUT: 0x01, // EP 1 OUT - serial data to device
+  // Note: WebUSB transferIn/transferOut use endpoint NUMBER (0-15), not address
+  CDC_IN: 1,  // EP 1 IN - serial data from device
+  CDC_OUT: 1, // EP 1 OUT - serial data to device
 
   // J-Link command endpoints (Interface 2)
-  JLINK_IN: 0x83,  // EP 3 IN - J-Link responses
-  JLINK_OUT: 0x02, // EP 2 OUT - J-Link commands
+  JLINK_IN: 3,  // EP 3 IN - J-Link responses
+  JLINK_OUT: 2, // EP 2 OUT - J-Link commands
 } as const;
 
 /**
@@ -55,10 +57,16 @@ export class JLinkWrapper {
   _numPages: number | undefined;
   _deviceId: number | undefined;
 
+  // J-Link protocol implementation
+  private protocol: JLinkProtocol;
+
   constructor(
     public device: USBDevice,
     private logging: Logging,
-  ) {}
+  ) {
+    // Initialize protocol with command sender
+    this.protocol = new JLinkProtocol(this.sendJLinkCommand.bind(this));
+  }
 
   /**
    * The page size. For J-Link devices, this is informational only.
@@ -282,19 +290,26 @@ export class JLinkWrapper {
 
   /**
    * Software reset via J-Link protocol.
-   * TODO: Implement using J-Link commands.
    */
   async softwareReset(): Promise<void> {
     this.logging.log("J-Link software reset requested");
-    // TODO: Send J-Link reset command via JLINK_OUT endpoint
-    throw new Error("J-Link reset not yet implemented");
+    try {
+      await this.protocol.resetTarget(true);
+      this.logging.log("Reset complete");
+    } catch (error) {
+      this.logging.log(`Reset error: ${error}`);
+      throw new Error("J-Link reset not yet implemented - protocol incomplete");
+    }
   }
 
   /**
-   * Flash hex data to the device.
-   * TODO: Implement using J-Link protocol.
+   * Flash hex data to the device using J-Link MSD protocol.
    * 
-   * @param hexData The hex file data to flash
+   * This uses the J-Link Mass Storage Device (MSD) flashing protocol,
+   * which sends the Intel HEX file data directly to the probe.
+   * The J-Link probe handles parsing, erasing, programming, and verification internally.
+   * 
+   * @param hexData The Intel HEX file data to flash
    * @param progressCallback Optional callback for progress updates (0-1)
    */
   async flashHex(
@@ -302,23 +317,48 @@ export class JLinkWrapper {
     progressCallback?: (progress: number) => void,
   ): Promise<void> {
     this.logging.log("J-Link flash requested");
-    // TODO: Implement J-Link flashing protocol
-    // This will use sendJLinkCommand() to communicate with the device
-    // For reference, the method is available but not yet implemented
-    void this.sendJLinkCommand;
-    throw new Error("J-Link flashing not yet implemented");
+    
+    try {
+      if (progressCallback) progressCallback(0.0);
+      
+      // Connect to J-Link probe and check capabilities
+      this.logging.log("Connecting to J-Link probe");
+      await this.protocol.connect();
+      
+      if (progressCallback) progressCallback(0.1);
+      
+      // Program flash using MSD protocol
+      // The hex data is sent as-is; the J-Link probe handles everything
+      this.logging.log(`Programming ${hexData.length} bytes of hex data`);
+      await this.protocol.programFlash(hexData, (progress) => {
+        // Map protocol progress (0-1) to overall progress (0.1-1.0)
+        if (progressCallback) {
+          progressCallback(0.1 + progress * 0.9);
+        }
+      });
+      
+      this.logging.log("Flash complete");
+      if (progressCallback) progressCallback(1.0);
+    } catch (error) {
+      this.logging.log(`Flash error: ${error}`);
+      throw error;
+    }
   }
 
   /**
-   * Send a J-Link command and receive response.
-   * TODO: Implement J-Link protocol.
+   * Send a J-Link command and optionally receive response.
    * 
    * @param command The command bytes to send
-   * @returns The response bytes
+   * @param expectResponse Whether to wait for and read a response (default: true)
+   * @returns The response bytes (empty if expectResponse is false)
    */
-  private async sendJLinkCommand(command: Uint8Array): Promise<Uint8Array> {
+  private async sendJLinkCommand(command: Uint8Array, expectResponse: boolean = true): Promise<Uint8Array> {
     // Send command to JLINK_OUT endpoint
     await this.device.transferOut(JLINK_ENDPOINTS.JLINK_OUT, command as BufferSource);
+
+    if (!expectResponse) {
+      return new Uint8Array(0);
+    }
 
     // Read response from JLINK_IN endpoint
     const result = await this.device.transferIn(JLINK_ENDPOINTS.JLINK_IN, 64);

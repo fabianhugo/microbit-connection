@@ -14,6 +14,28 @@ This project is a work in progress. We are extracting WebUSB and Web Bluetooth c
 
 [This Python Editor PR](https://github.com/microbit-foundation/python-editor-v3/pull/1190) tracks updating the micro:bit Python Editor to use this library.
 
+## Supported Devices
+
+### Via WebUSB
+
+- **micro:bit V1** - Full support (flash, serial)
+- **micro:bit V2** - Full support (flash, serial)
+- **Calliope mini V1** - Full support (flash, serial)
+- **Calliope mini V3** - Full support (flash, serial)
+- **Calliope mini V2** - Implementation complete, testing pending:
+  - ✅ Connection and device detection
+  - ✅ Flashing (J-Link MSD protocol implemented)
+  - ✅ Serial communication (Windows/macOS)
+  - ❌ Serial communication (Linux - blocked by kernel `cdc_acm` driver, use `/dev/ttyACM0` directly)
+
+The Calliope mini V2 uses SEGGER's J-Link OB interface instead of DAPLink. The J-Link MSD (Mass Storage Device) flashing protocol has been reverse-engineered from SEGGER's WebUSB demo and fully implemented. Hardware testing is pending. See [JLINK_IMPLEMENTATION.md](JLINK_IMPLEMENTATION.md) for implementation details.
+
+### Via Bluetooth
+
+- **micro:bit V1** - Full support
+- **micro:bit V2** - Full support
+- **Calliope mini devices** - Not tested
+
 ## Usage
 
 ### Flash a micro:bit

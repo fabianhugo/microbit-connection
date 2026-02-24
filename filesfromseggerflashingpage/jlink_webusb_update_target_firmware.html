@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html style="font-family: 'Verdana';font-size: 12px">
+  <head>
+    <!-- Origin Trial Token, feature = WebUSB (For Chrome M57+), origin = https://webusb.github.io, expires = 2017-06-19 -->
+    <meta http-equiv="origin-trial" data-feature="WebUSB (For Chrome M57+)" data-expires="2017-06-19" content="Ag83MurQOa5N4SKRCqqtSlbycfe08s5LgUiqEI7J3jTk2NEIpRp7SLPz2i+EBDuXyf+AeRMdD6BI++kTSJmGzQEAAABReyJvcmlnaW4iOiJodHRwczovL3dlYnVzYi5naXRodWIuaW86NDQzIiwiZmVhdHVyZSI6IldlYlVTQjIiLCJleHBpcnkiOjE0OTc4OTM2OTV9">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>J-Link WebUSB target firmware update</title>
+    <style>
+
+    .ProgBarParent {
+      width:        100%;
+      height:       2em;
+      line-height:  2em;
+      border-style: solid;
+      border-width: thin;
+      border-color: #000000;
+    }
+    .ProgBarChild {
+      text-indent: 10px;
+      text-align: left;
+      height: 100%;
+      max-width: 100%;
+      background: #32CD32;
+      font-weight: bold;
+    }
+    </style>
+   </head>
+  <body>
+    <!--                                         -->
+    <!-- HTML part to define elements            -->
+    <!-- Elements are updated by led.js          -->
+    <!-- USB logic is performed in seggerbulk.js -->
+    <!-- SEGGER head as sgv-->
+    <img alt="segger-header" src="segger-header.svg">
+  <font size="2" face="Arial, Helvetica, Verdana sans-serif">
+    <h1>Update target application:</h1>
+    <div>
+    </div>
+    <table cellpadding="10" border="0">
+      <tr>
+        <td width="40%" bgcolor="#eee">Application image:</td>
+        <td bgcolor="#eee"><input type="file" id="FileSel" size="40"></td>
+      </tr>
+      <tr>
+        <td bgcolor="#eee">
+          Progress:
+        </td>
+        <td bgcolor="#eee">
+          <div class = "ProgBarParent">
+            <div class = "ProgBarChild" style="width: 0%;" id="ProgBar"></div> <!-- Width and content are updated by JS -->
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td bgcolor="#eee">Status:</td>
+        <td bgcolor="#eee"><div id="status"></div></td>
+      </tr>
+      <tr>
+        <td bgcolor="#eee" colspan="2" align="center">For more info, see <a href="https://kb.segger.com/J-Link:WebUSB">SEGGER Konwledge Base</a></td>
+      </tr>
+    </table>
+  </font>
+  </body>
+  <script src="seggerbulk.js"></script>  <!-- Scripts at the end of the page to reduce page-loading time. This also makes it possible to reference HTML elements without having to wait for them to load -->
+  <script src="programming.js"></script>
+</html>
+q

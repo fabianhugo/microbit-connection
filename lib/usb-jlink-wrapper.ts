@@ -155,8 +155,15 @@ export class JLinkWrapper {
       this.logging.log(`Error claiming J-Link interface: ${e}`);
     }
 
+    // Claim CDC control interface (interface 0) for control transfers
+    try {
+      await this.device.claimInterface(JLINK_INTERFACE.CDC_CONTROL);
+      this.logging.log("CDC control interface claimed");
+    } catch (e) {
+      this.logging.log(`Warning: Could not claim CDC control interface: ${e}`);
+    }
+
     // Claim CDC data interface (interface 1) to detach kernel driver and access serial endpoints
-    // The control interface (0) can remain with the kernel, we only need the data interface
     try {
       await this.device.claimInterface(JLINK_INTERFACE.CDC_DATA);
       this.logging.log("CDC data interface claimed for serial communication");
@@ -225,6 +232,11 @@ export class JLinkWrapper {
     if (this.device.opened) {
       // Release claimed interfaces
       try {
+        await this.device.releaseInterface(JLINK_INTERFACE.CDC_CONTROL);
+      } catch (e) {
+        // Ignore errors if interface wasn't claimed
+      }
+      try {
         await this.device.releaseInterface(JLINK_INTERFACE.CDC_DATA);
       } catch (e) {
         // Ignore errors if interface wasn't claimed
@@ -246,15 +258,67 @@ export class JLinkWrapper {
    * preventing WebUSB from accessing them. Serial communication works on Windows/macOS but
    * not on Linux. On Linux, use /dev/ttyACM0 via Web Serial API or native code instead.
    * 
-   * Note: CDC interfaces are typically claimed by the OS kernel, but we can still
-   * use the endpoints via controlTransferOut and transferIn/Out.
+   * Workaround: Manually unbind the kernel driver before using WebUSB:
+   *   echo "BUS-PORT:1.0" | sudo tee /sys/bus/usb/drivers/cdc_acm/unbind
+   *   echo "BUS-PORT:1.1" | sudo tee /sys/bus/usb/drivers/cdc_acm/unbind
    */
   async startSerial(listener: (data: string) => void): Promise<void> {
     this.serialListener = listener;
-    this.logging.log("Starting CDC serial communication on unclaimed interface");
+    this.logging.log("Starting CDC serial communication");
 
-    // On Linux, the kernel's cdc_acm driver owns interface 1, preventing us from claiming it.
-    // However, let's try to read from the CDC endpoints anyway - some browsers may allow this.
+    // Configure CDC line coding (baud rate, stop bits, parity, data bits)
+    // This is required for CDC ACM devices
+    // Some devices require initial configuration at 115200, then reconfiguration at actual rate
+    try {
+      // First: Set line coding to 115200 baud, 8N1
+      const lineCoding115200 = new Uint8Array([
+        0x00, 0xC2, 0x01, 0x00,  // dwDTERate: 115200 (little-endian)
+        0x00,                     // bCharFormat: 1 stop bit
+        0x00,                     // bParityType: None
+        0x08                      // bDataBits: 8
+      ]);
+      
+      await this.device.controlTransferOut({
+        requestType: 'class',
+        recipient: 'interface',
+        request: 0x20,  // SET_LINE_CODING
+        value: 0,
+        index: JLINK_INTERFACE.CDC_CONTROL  // Interface 0 (control interface)
+      }, lineCoding115200);
+      
+      this.logging.log("CDC line coding configured (115200 8N1 - initial)");
+      
+      // Second: Set line coding to 57600 baud, 8N1 (actual device baud rate)
+      const lineCoding57600 = new Uint8Array([
+        0x00, 0xE1, 0x00, 0x00,  // dwDTERate: 57600 (little-endian)
+        0x00,                     // bCharFormat: 1 stop bit
+        0x00,                     // bParityType: None
+        0x08                      // bDataBits: 8
+      ]);
+      
+      await this.device.controlTransferOut({
+        requestType: 'class',
+        recipient: 'interface',
+        request: 0x20,  // SET_LINE_CODING
+        value: 0,
+        index: JLINK_INTERFACE.CDC_CONTROL  // Interface 0 (control interface)
+      }, lineCoding57600);
+      
+      this.logging.log("CDC line coding configured (57600 8N1 - final)");
+      
+      // Set control line state (DTR=1, RTS=1)
+      await this.device.controlTransferOut({
+        requestType: 'class',
+        recipient: 'interface', 
+        request: 0x22,  // SET_CONTROL_LINE_STATE
+        value: 0x03,    // DTR=1, RTS=1
+        index: JLINK_INTERFACE.CDC_CONTROL  // Interface 0 (control interface)
+      });
+      
+      this.logging.log("CDC control line state set (DTR/RTS on)");
+    } catch (e) {
+      this.logging.log(`Warning: CDC configuration failed: ${e}`);
+    }
     
     // Start the serial read loop using CDC endpoints
     this.serialReading = true;
@@ -281,15 +345,24 @@ export class JLinkWrapper {
     while (this.serialReading) {
       try {
         readCount++;
-        if (readCount <= 3) {
+        if (readCount <= 5) {
           this.logging.log(`Serial read attempt ${readCount} on CDC endpoint ${this.cdcInEndpoint}`);
         }
-        const result = await this.device.transferIn(
+
+        // Use Promise.race to add a timeout to transferIn
+        // transferIn blocks until data arrives, so we timeout after 100ms and retry
+        const readPromise = this.device.transferIn(
           this.cdcInEndpoint,
           64, // Read up to 64 bytes
         );
+        
+        const timeoutPromise = new Promise<USBInTransferResult>((resolve) => {
+          setTimeout(() => resolve({ data: undefined, status: 'ok' } as USBInTransferResult), 100);
+        });
 
-        if (readCount <= 3) {
+        const result = await Promise.race([readPromise, timeoutPromise]);
+
+        if (readCount <= 5) {
           this.logging.log(`Transfer result status: ${result.status}, bytes: ${result.data?.byteLength || 0}`);
         }
 
@@ -301,10 +374,13 @@ export class JLinkWrapper {
           }
         }
       } catch (e) {
+        this.logging.log(`Serial read error: ${e}`);
         if (this.serialReading) {
-          this.logging.log(`Serial read error: ${e}`);
           // Wait a bit before retrying
           await new Promise((resolve) => setTimeout(resolve, 100));
+        } else {
+          // If we're stopping, exit the loop
+          break;
         }
       }
     }

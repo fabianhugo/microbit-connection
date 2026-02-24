@@ -44,6 +44,7 @@ export class JLinkWrapper {
   private serialListener: ((data: string) => void) | undefined;
   private serialReading: boolean = false;
   private serialReadLoop: Promise<void> | undefined;
+  private serialBuffer: string = ""; // Buffer for incomplete lines
 
   // Detected endpoint numbers (vary by hardware version)
   private cdcInEndpoint: number = 1;
@@ -264,6 +265,7 @@ export class JLinkWrapper {
    */
   async startSerial(listener: (data: string) => void): Promise<void> {
     this.serialListener = listener;
+    this.serialBuffer = ""; // Clear buffer from any previous session
     this.logging.log("Starting CDC serial communication");
 
     // Configure CDC line coding (baud rate, stop bits, parity, data bits)
@@ -306,7 +308,17 @@ export class JLinkWrapper {
       
       this.logging.log("CDC line coding configured (57600 8N1 - final)");
       
-      // Set control line state (DTR=1, RTS=1)
+      // Start the serial read loop BEFORE setting DTR/RTS
+      // This ensures we're ready to receive data as soon as the device starts transmitting
+      this.serialReading = true;
+      this.serialReadLoop = this.serialReadLoopFunction();
+      this.logging.log("Serial read loop started");
+      
+      // Give the read loop time to issue the first transferIn call
+      // This ensures the USB read is already pending before we trigger the device
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Set control line state (DTR=1, RTS=1) - this triggers the device to start sending
       await this.device.controlTransferOut({
         requestType: 'class',
         recipient: 'interface', 
@@ -320,10 +332,9 @@ export class JLinkWrapper {
       this.logging.log(`Warning: CDC configuration failed: ${e}`);
     }
     
-    // Start the serial read loop using CDC endpoints
-    this.serialReading = true;
-    this.serialReadLoop = this.serialReadLoopFunction();
-    this.logging.log("Serial read loop started");
+    // Wait for the loop to finish (when stopSerial is called)
+    // This matches DAPLink behavior where startSerial doesn't resolve until serial stops
+    await this.serialReadLoop;
   }
 
   /**
@@ -333,6 +344,7 @@ export class JLinkWrapper {
     if (this.serialListener === listener) {
       this.serialReading = false;
       this.serialListener = undefined;
+      this.serialBuffer = ""; // Clear buffer when stopping
     }
   }
 
@@ -369,8 +381,33 @@ export class JLinkWrapper {
         if (result.data && result.data.byteLength > 0) {
           const text = new TextDecoder().decode(result.data);
           this.logging.log(`Received ${result.data.byteLength} bytes: ${text}`);
+          
+          // Add to buffer and extract complete lines
+          this.serialBuffer += text;
+          
+          // Send complete lines to listener
           if (this.serialListener) {
-            this.serialListener(text);
+            // Split on \r\n or \n, capturing the line ending
+            const parts = this.serialBuffer.split(/(\r?\n)/);
+            
+            // Process pairs of (line, lineEnding)
+            let i = 0;
+            while (i < parts.length - 1) {
+              const line = parts[i];
+              const lineEnding = parts[i + 1];
+              
+              if (lineEnding === '\r\n' || lineEnding === '\n') {
+                // Complete line - send it with its original line ending
+                this.serialListener(line + lineEnding);
+                i += 2;
+              } else {
+                // No line ending yet, keep in buffer
+                break;
+              }
+            }
+            
+            // Keep remaining partial line in buffer
+            this.serialBuffer = parts.slice(i).join('');
           }
         }
       } catch (e) {
@@ -384,6 +421,13 @@ export class JLinkWrapper {
         }
       }
     }
+    
+    // Flush any remaining data in the buffer when loop ends
+    if (this.serialBuffer.length > 0 && this.serialListener) {
+      this.serialListener(this.serialBuffer);
+      this.serialBuffer = "";
+    }
+    
     this.logging.log("Serial read loop ended");
   }
 

@@ -26,16 +26,9 @@ const JLINK_INTERFACE = {
   MSC: 3,
 } as const;
 
-const JLINK_ENDPOINTS = {
-  // CDC Serial endpoints (Interface 1)
-  // Note: WebUSB transferIn/transferOut use endpoint NUMBER (0-15), not address
-  CDC_IN: 1,  // EP 1 IN - serial data from device
-  CDC_OUT: 1, // EP 1 OUT - serial data to device
-
-  // J-Link command endpoints (Interface 2)
-  JLINK_IN: 3,  // EP 3 IN - J-Link responses
-  JLINK_OUT: 2, // EP 2 OUT - J-Link commands
-} as const;
+// Endpoint numbers are detected dynamically as they vary between hardware versions
+// Calliope v2.0: EP 3 IN / EP 2 OUT
+// Calliope v2.1: EP 5 IN / EP 4 OUT
 
 /**
  * Wrapper for J-Link USB interface (used by Calliope mini v2).
@@ -51,6 +44,12 @@ export class JLinkWrapper {
   private serialListener: ((data: string) => void) | undefined;
   private serialReading: boolean = false;
   private serialReadLoop: Promise<void> | undefined;
+
+  // Detected endpoint numbers (vary by hardware version)
+  private cdcInEndpoint: number = 1;
+  private cdcOutEndpoint: number = 1;
+  private jlinkInEndpoint: number = 3;
+  private jlinkOutEndpoint: number = 2;
 
   // Device info (will be populated on connection)
   _pageSize: number | undefined;
@@ -136,6 +135,22 @@ export class JLinkWrapper {
     try {
       await this.device.claimInterface(JLINK_INTERFACE.JLINK);
       this.logging.log("J-Link interface claimed");
+
+      // Detect J-Link endpoint numbers (vary by hardware version)
+      const jlinkIface = this.device.configuration?.interfaces.find(
+        (iface) => iface.interfaceNumber === JLINK_INTERFACE.JLINK
+      );
+      if (jlinkIface) {
+        for (const endpoint of jlinkIface.alternate.endpoints) {
+          if (endpoint.direction === "in") {
+            this.jlinkInEndpoint = endpoint.endpointNumber;
+            this.logging.log(`Detected J-Link IN endpoint: ${this.jlinkInEndpoint}`);
+          } else if (endpoint.direction === "out") {
+            this.jlinkOutEndpoint = endpoint.endpointNumber;
+            this.logging.log(`Detected J-Link OUT endpoint: ${this.jlinkOutEndpoint}`);
+          }
+        }
+      }
     } catch (e) {
       this.logging.log(`Error claiming J-Link interface: ${e}`);
     }
@@ -145,6 +160,22 @@ export class JLinkWrapper {
     try {
       await this.device.claimInterface(JLINK_INTERFACE.CDC_DATA);
       this.logging.log("CDC data interface claimed for serial communication");
+
+      // Detect CDC endpoint numbers
+      const cdcIface = this.device.configuration?.interfaces.find(
+        (iface) => iface.interfaceNumber === JLINK_INTERFACE.CDC_DATA
+      );
+      if (cdcIface) {
+        for (const endpoint of cdcIface.alternate.endpoints) {
+          if (endpoint.direction === "in") {
+            this.cdcInEndpoint = endpoint.endpointNumber;
+            this.logging.log(`Detected CDC IN endpoint: ${this.cdcInEndpoint}`);
+          } else if (endpoint.direction === "out") {
+            this.cdcOutEndpoint = endpoint.endpointNumber;
+            this.logging.log(`Detected CDC OUT endpoint: ${this.cdcOutEndpoint}`);
+          }
+        }
+      }
     } catch (e) {
       this.logging.log(`Warning: Could not claim CDC data interface: ${e}`);
     }
@@ -251,10 +282,10 @@ export class JLinkWrapper {
       try {
         readCount++;
         if (readCount <= 3) {
-          this.logging.log(`Serial read attempt ${readCount} on CDC endpoint 0x${JLINK_ENDPOINTS.CDC_IN.toString(16)}`);
+          this.logging.log(`Serial read attempt ${readCount} on CDC endpoint ${this.cdcInEndpoint}`);
         }
         const result = await this.device.transferIn(
-          JLINK_ENDPOINTS.CDC_IN, // Use CDC endpoint (0x81)
+          this.cdcInEndpoint,
           64, // Read up to 64 bytes
         );
 
@@ -285,7 +316,7 @@ export class JLinkWrapper {
    */
   async serialWrite(data: string): Promise<void> {
     const bytes = new TextEncoder().encode(data);
-    await this.device.transferOut(JLINK_ENDPOINTS.CDC_OUT, bytes);
+    await this.device.transferOut(this.cdcOutEndpoint, bytes);
   }
 
   /**
@@ -353,15 +384,15 @@ export class JLinkWrapper {
    * @returns The response bytes (empty if expectResponse is false)
    */
   private async sendJLinkCommand(command: Uint8Array, expectResponse: boolean = true): Promise<Uint8Array> {
-    // Send command to JLINK_OUT endpoint
-    await this.device.transferOut(JLINK_ENDPOINTS.JLINK_OUT, command as BufferSource);
+    // Send command to J-Link OUT endpoint
+    await this.device.transferOut(this.jlinkOutEndpoint, command as BufferSource);
 
     if (!expectResponse) {
       return new Uint8Array(0);
     }
 
-    // Read response from JLINK_IN endpoint
-    const result = await this.device.transferIn(JLINK_ENDPOINTS.JLINK_IN, 64);
+    // Read response from J-Link IN endpoint
+    const result = await this.device.transferIn(this.jlinkInEndpoint, 64);
 
     if (!result.data) {
       throw new Error("No response from J-Link");

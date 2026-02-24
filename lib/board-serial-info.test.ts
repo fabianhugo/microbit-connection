@@ -9,12 +9,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("BoardSerialInfo", () => {
   const valid = {
+    vendorId: 0x0d28, // ARM (DAPLink)
+    productId: 0x0204,
     serialNumber: "9904360251974e450039900a00000041000000009796990b",
   } as USBDevice;
   const weirdLength = {
+    vendorId: 0x0d28,
+    productId: 0x0204,
     serialNumber: "9904360251974e450039900a000000410000000097969",
   } as USBDevice;
-  const missing = { serialNumber: "" } as USBDevice;
+  const missing = { 
+    vendorId: 0x0d28,
+    productId: 0x0204,
+    serialNumber: "" 
+  } as USBDevice;
   const log = vi.fn();
   afterEach(() => {
     log.mockReset();

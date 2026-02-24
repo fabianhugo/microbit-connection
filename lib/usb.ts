@@ -28,6 +28,8 @@ import {
   SerialResetEvent,
 } from "./serial-events.js";
 import { DAPWrapper } from "./usb-device-wrapper.js";
+import { JLinkWrapper } from "./usb-jlink-wrapper.js";
+import { isJLinkDevice } from "./usb-interface-type.js";
 import { PartialFlashing } from "./usb-partial-flashing.js";
 
 // Temporary workaround for ChromeOS 105 bug.
@@ -37,7 +39,9 @@ export const isChromeOS105 = (): boolean => {
   return /CrOS/.test(userAgent) && /Chrome\/105\b/.test(userAgent);
 };
 
-const defaultFilters = [{ vendorId: 0x0d28, productId: 0x0204 }];
+import { ALL_DEVICE_FILTERS } from "./usb-interface-type.js";
+
+const defaultFilters = ALL_DEVICE_FILTERS;
 
 export enum DeviceSelectionMode {
   /**
@@ -130,8 +134,9 @@ class MicrobitWebUSBConnectionImpl
   private device: USBDevice | undefined;
   /**
    * The connection to the device.
+   * Can be either DAPLink or J-Link based device.
    */
-  private connection: DAPWrapper | undefined;
+  private connection: DAPWrapper | JLinkWrapper | undefined;
 
   private serialState: boolean = false;
 
@@ -215,6 +220,24 @@ class MicrobitWebUSBConnectionImpl
 
   private log(v: any) {
     this.logging.log(v);
+  }
+
+  /**
+   * Create the appropriate device wrapper based on USB device type.
+   * DAPLink devices use DAPWrapper, J-Link devices use JLinkWrapper.
+   */
+  private createDeviceWrapper(device: USBDevice): DAPWrapper | JLinkWrapper {
+    try {
+      if (isJLinkDevice(device)) {
+        this.log("Creating J-Link wrapper for device");
+        return new JLinkWrapper(device, this.logging);
+      }
+    } catch (e) {
+      this.log(`Error detecting device type, defaulting to DAPLink: ${e}`);
+    }
+    
+    this.log("Creating DAPLink wrapper for device");
+    return new DAPWrapper(device, this.logging);
   }
 
   async initialize(): Promise<void> {
@@ -307,17 +330,50 @@ class MicrobitWebUSBConnectionImpl
       throw new Error("Must be connected now");
     }
 
+    const boardId = this.connection.boardSerialInfo.id;
+    const boardVersion = boardId.toBoardVersion();
+    const data = await dataSource(boardVersion);
+
+    // J-Link devices use a different flash method
+    if (this.connection instanceof JLinkWrapper) {
+      this.log("Flashing J-Link device (full flash only)");
+      const progress = rateLimitProgress(
+        options.minimumProgressIncrement ?? 0.0025,
+        options.progress || (() => {}),
+      );
+      
+      // Convert data to string if needed
+      const hexData = typeof data === "string" ? data : new TextDecoder().decode(data);
+      
+      try {
+        await this.connection.flashHex(hexData, (p) => progress(p, false));
+      } finally {
+        progress(undefined, false);
+        
+        if (this.disconnectAfterFlash) {
+          this.log("Disconnecting after flash due to tab visibility");
+          this.disconnectAfterFlash = false;
+          await this.disconnect();
+          this.visibilityReconnect = true;
+        } else {
+          if (this.addedListeners.serialdata) {
+            this.log("Reinstating serial after flash");
+            await this.startSerialInternal();
+          }
+        }
+      }
+      return;
+    }
+
+    // DAPLink devices use partial flashing
     const partial = options.partial;
     const progress = rateLimitProgress(
       options.minimumProgressIncrement ?? 0.0025,
       options.progress || (() => {}),
     );
 
-    const boardId = this.connection.boardSerialInfo.id;
-    const boardVersion = boardId.toBoardVersion();
-    const data = await dataSource(boardVersion);
     const flashing = new PartialFlashing(
-      this.connection,
+      this.connection as DAPWrapper,
       this.logging,
       boardVersion,
     );
@@ -339,10 +395,11 @@ class MicrobitWebUSBConnectionImpl
       } else {
         if (this.addedListeners.serialdata) {
           this.log("Reinstating serial after flash");
-          if (this.connection.daplink) {
+          // For DAPLink devices, reconnect the daplink interface
+          if (this.connection instanceof DAPWrapper && this.connection.daplink) {
             await this.connection.daplink.connect();
-            await this.startSerialInternal();
           }
+          await this.startSerialInternal();
         }
       }
     }
@@ -450,14 +507,20 @@ class MicrobitWebUSBConnectionImpl
   serialWrite(data: string): Promise<void> {
     return this.withEnrichedErrors(async () => {
       if (this.connection) {
-        // Using WebUSB/DAPJs we're limited to 64 byte packet size with a two byte header.
+        // J-Link devices use direct serial write
+        if (this.connection instanceof JLinkWrapper) {
+          await this.connection.serialWrite(data);
+          return;
+        }
+        
+        // DAPLink devices are limited to 64 byte packet size with a two byte header.
         // https://github.com/microbit-foundation/python-editor-v3/issues/215
         const maxSerialWrite = 62;
         let start = 0;
         while (start < data.length) {
           const end = Math.min(start + maxSerialWrite, data.length);
           const chunkData = data.slice(start, end);
-          await this.connection.daplink.serialWrite(chunkData);
+          await (this.connection as DAPWrapper).daplink.serialWrite(chunkData);
           start = end;
         }
       }
@@ -486,7 +549,7 @@ class MicrobitWebUSBConnectionImpl
 
   private async connectInternal(): Promise<void> {
     if (!this.connection && this.device) {
-      this.connection = new DAPWrapper(this.device, this.logging);
+      this.connection = this.createDeviceWrapper(this.device);
       await withTimeout(this.connection.reconnectAsync(), 10_000);
     } else if (!this.connection) {
       await this.connectWithOtherDevice();
@@ -505,7 +568,7 @@ class MicrobitWebUSBConnectionImpl
     }
     if (!this.connection) {
       this.device = await this.chooseDevice();
-      this.connection = new DAPWrapper(this.device, this.logging);
+      this.connection = this.createDeviceWrapper(this.device);
       await withTimeout(this.connection.reconnectAsync(), 10_000);
     }
   }
@@ -538,12 +601,12 @@ class MicrobitWebUSBConnectionImpl
 
   private async attemptDeviceConnection(
     device: USBDevice,
-  ): Promise<DAPWrapper | undefined> {
+  ): Promise<DAPWrapper | JLinkWrapper | undefined> {
     this.log(
       `Attempting connection to: ${device.manufacturerName} ${device.productName}`,
     );
     this.log(`Serial number: ${device.serialNumber}`);
-    const connection = new DAPWrapper(device, this.logging);
+    const connection = this.createDeviceWrapper(device);
     await withTimeout(connection.reconnectAsync(), 10_000);
     return connection;
   }

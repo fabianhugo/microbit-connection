@@ -7,14 +7,20 @@
 import { BoardVersion } from "./device.js";
 
 /**
- * Validates micro:bit board IDs.
+ * Board identifiers for different board types.
+ * 
+ * DAPLink boards (micro:bit, Calliope v1/v3) use board IDs from USB serial.
+ * J-Link boards (Calliope v2) are identified by USB VID/PID.
  */
 export class BoardId {
   private static v1Normalized = new BoardId(0x9900);
   private static v2Normalized = new BoardId(0x9903);
+  // Calliope mini v2 uses J-Link, identified by USB VID:PID (0x1366:0x1025)
+  // We use a synthetic board ID for internal consistency
+  private static calliopeV2Normalized = new BoardId(0x9902);
 
   constructor(public id: number) {
-    if (!this.isV1() && !this.isV2()) {
+    if (!this.isV1() && !this.isV2() && !this.isCalliopeV2()) {
       throw new Error(`Could not recognise the Board ID ${id.toString(16)}`);
     }
   }
@@ -37,10 +43,20 @@ export class BoardId {
   }
 
   /**
+   * Check if this is a Calliope mini v2 (J-Link based).
+   */
+  isCalliopeV2(): boolean {
+    return this.id === 0x9902;
+  }
+
+  /**
    * Return the board ID using the default ID for the board type.
    * Used to integrate with MicropythonFsHex.
    */
   normalize() {
+    if (this.isCalliopeV2()) {
+      return BoardId.calliopeV2Normalized;
+    }
     return this.isV1() ? BoardId.v1Normalized : BoardId.v2Normalized;
   }
 
@@ -60,6 +76,13 @@ export class BoardId {
    */
   static parse(value: string): BoardId {
     return new BoardId(parseInt(value, 16));
+  }
+
+  /**
+   * Create a BoardId for Calliope mini v2 (J-Link).
+   */
+  static forCalliopeV2(): BoardId {
+    return this.calliopeV2Normalized;
   }
 
   static forVersion(boardVersion: BoardVersion): BoardId {

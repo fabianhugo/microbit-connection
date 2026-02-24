@@ -135,16 +135,6 @@ const createConnectSection = (): Section => {
         ),
       ),
     ),
-    crelt(
-      "label",
-      "Name",
-      crelt("input", {
-        type: "text",
-        onchange: (e: Event) => {
-          name = (e.currentTarget as HTMLInputElement).value;
-        },
-      }),
-    ),
     type === "usb"
       ? crelt(
           "label",
@@ -261,11 +251,27 @@ const createSerialSection = (): Section => {
   }
 
   let data = "";
+  const serialOutput = crelt("pre", {
+    style: "background: #f5f5f5; border: 1px solid #ccc; padding: 8px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; white-space: pre-wrap; word-wrap: break-word;"
+  });
+  const lines: string[] = [];
+  const maxLines = 50;
+
+  const updateDisplay = () => {
+    serialOutput.textContent = lines.slice(-maxLines).join("\n");
+    // Auto-scroll to bottom
+    serialOutput.scrollTop = serialOutput.scrollHeight;
+  };
+
   const serialDataListener = (event: SerialDataEvent) => {
     for (const char of event.data) {
       if (char === "\n") {
         console.log(data);
+        lines.push(data);
         data = "";
+        updateDisplay();
+      } else if (char === "\r") {
+        // Ignore carriage return
       } else {
         data += char;
       }
@@ -296,6 +302,19 @@ const createSerialSection = (): Section => {
       },
       "Stop listening to serial",
     ),
+    crelt(
+      "button",
+      {
+        onclick: () => {
+          lines.length = 0;
+          data = "";
+          updateDisplay();
+        },
+      },
+      "Clear",
+    ),
+    crelt("h3", "Serial Output"),
+    serialOutput,
   );
 
   return {

@@ -348,8 +348,34 @@ export class PartialFlashing {
   }
 
   private hexStringToPaddedBytes(hex: string): Uint8Array {
-    const m = MemoryMap.fromHex(hex);
+    // Clean hex file by removing any data after EOF record
+    // Some hex files (e.g., from certain Calliope mini builds) have data after EOF
+    // which violates Intel HEX format and causes parsing errors
+    const cleanedHex = this.removeDataAfterEOF(hex);
+    const m = MemoryMap.fromHex(cleanedHex);
     return this.memoryMapToPaddedBytes(m);
+  }
+
+  private removeDataAfterEOF(hex: string): string {
+    const lines = hex.split(/\r?\n/);
+    const result: string[] = [];
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+      
+      result.push(line);
+      
+      // Check if this is an EOF record
+      // Intel HEX EOF record format: :00xxxxxx01cc where xx is address and cc is checksum
+      // Most common is :00000001FF
+      if (trimmedLine.match(/^:[0-9A-Fa-f]{2}[0-9A-Fa-f]{4}01[0-9A-Fa-f]{2}$/)) {
+        // Found EOF record, stop processing
+        break;
+      }
+    }
+    
+    return result.join('\n');
   }
 
   private paddedBytesToHexString(data: Uint8Array): string {
